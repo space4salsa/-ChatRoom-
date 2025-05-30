@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LAN Lounge</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            line-height: 1.6;
+            background: #f0f2f5;
+            color: #1a1a1a;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .chat-container {
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            height: calc(100vh - 40px);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .chat-header {
+            padding: 20px;
+            border-bottom: 1px solid #eee;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+        }
+
+        .message {
+            margin-bottom: 15px;
+            padding: 10px 15px;
+            border-radius: 15px;
+            max-width: 70%;
+            word-wrap: break-word;
+        }
+
+        .message.received {
+            background: #e9ecef;
+            margin-right: auto;
+        }
+
+        .message.sent {
+            background: #007bff;
+            color: white;
+            margin-left: auto;
+        }
+
+        .message .username {
+            font-weight: bold;
+            margin-bottom: 5px;
+            font-size: 0.9em;
+        }
+
+        .message .timestamp {
+            font-size: 0.8em;
+            opacity: 0.7;
+            margin-top: 5px;
+        }
+
+        .chat-input {
+            padding: 20px;
+            border-top: 1px solid #eee;
+            display: flex;
+            gap: 10px;
+        }
+
+        input[type="text"] {
+            flex: 1;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 1em;
+        }
+
+        button {
+            padding: 10px 20px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 1em;
+        }
+
+        button:hover {
+            background: #0056b3;
+        }
+
+        .file-upload {
+            position: relative;
+            overflow: hidden;
+        }
+
+        .file-upload input[type="file"] {
+            position: absolute;
+            top: 0;
+            right: 0;
+            min-width: 100%;
+            min-height: 100%;
+            opacity: 0;
+            cursor: pointer;
+        }
+
+        .file-link {
+            color: #007bff;
+            text-decoration: none;
+            word-break: break-all;
+        }
+
+        .file-link:hover {
+            text-decoration: underline;
+        }
+
+        .system-message {
+            text-align: center;
+            color: #666;
+            margin: 10px 0;
+            font-style: italic;
+        }
+
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .user-info .username {
+            font-weight: bold;
+        }
+
+        .change-username {
+            color: #007bff;
+            text-decoration: none;
+            font-size: 0.9em;
+        }
+
+        .change-username:hover {
+            text-decoration: underline;
+        }
+
+        .error-message {
+            background: #ff4444;
+            color: white;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+            text-align: center;
+        }
+
+        .file-info {
+            font-size: 0.8em;
+            color: #666;
+            margin-top: 5px;
+        }
+
+        .message .content {
+            word-wrap: break-word;
+        }
+
+        .message img {
+            max-width: 300px;
+            max-height: 300px;
+            border-radius: 5px;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="chat-container">
+            <div class="chat-header">
+                <h1>LAN Lounge</h1>
+                <div class="user-info">
+                    <span class="username">{{ username }}</span>
+                    <a href="{{ url_for('set_username') }}" class="change-username">Change Username</a>
+                </div>
+            </div>
+            <div class="chat-messages" id="messages"></div>
+            <div class="chat-input">
+                <input type="text" id="message" placeholder="Type a message..." autocomplete="off">
+                <div class="file-upload">
+                    <button>📎</button>
+                    <input type="file" id="file-input">
+                </div>
+                <button onclick="sendMessage()">Send</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+        const messagesDiv = document.getElementById('messages');
+        const messageInput = document.getElementById('message');
+        const fileInput = document.getElementById('file-input');
+        let username = '{{ username }}';
+        const MAX_FILE_SIZE = 16 * 1024 * 1024; // 16MB
+        const IMAGE_TYPES = ['png', 'jpg', 'jpeg', 'gif', 'webp'];
+
+        socket.on('connect', () => {
+            console.log('Connected to server');
+        });
+
+        socket.on('username_assigned', (data) => {
+            console.log('Username assigned:', data.username);
+        });
+
+        socket.on('user_joined', (data) => {
+            addSystemMessage(`${data.username} joined the chat`);
+        });
+
+        socket.on('user_left', (data) => {
+            addSystemMessage(`${data.username} left the chat`);
+        });
+
+        socket.on('chat_message', (data) => {
+            addMessage(data);
+        });
+
+        socket.on('message_history', (data) => {
+            data.messages.reverse().forEach(message => {
+                addMessage(message);
+            });
+        });
+
+        socket.on('error', (data) => {
+            addErrorMessage(data.message);
+        });
+
+        function addMessage(data) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${data.username === '{{ username }}' ? 'sent' : 'received'}`;
+            
+            const usernameDiv = document.createElement('div');
+            usernameDiv.className = 'username';
+            usernameDiv.textContent = data.username;
+            messageDiv.appendChild(usernameDiv);
+            
+            const contentDiv = document.createElement('div');
+            contentDiv.className = 'content';
+            contentDiv.textContent = data.message;
+            messageDiv.appendChild(contentDiv);
+            
+            // Add image if it's an image file
+            if (data.is_image && data.file_url) {
+                const img = document.createElement('img');
+                img.src = data.file_url;
+                img.alt = data.message;
+                img.style.maxWidth = '300px';
+                img.style.maxHeight = '300px';
+                img.style.marginTop = '10px';
+                img.style.borderRadius = '5px';
+                messageDiv.appendChild(img);
+            }
+            
+            const timestampDiv = document.createElement('div');
+            timestampDiv.className = 'timestamp';
+            timestampDiv.textContent = data.timestamp;
+            messageDiv.appendChild(timestampDiv);
+            
+            messagesDiv.appendChild(messageDiv);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+        
+        function addSystemMessage(message) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'system-message';
+            messageDiv.textContent = message;
+            messagesDiv.appendChild(messageDiv);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+        
+        function addErrorMessage(message) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'error-message';
+            messageDiv.textContent = message;
+            messagesDiv.appendChild(messageDiv);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+        
+        function sendMessage() {
+            const message = messageInput.value.trim();
+            if (message) {
+                socket.emit('chat_message', { message });
+                messageInput.value = '';
+            }
+        }
+
+        messageInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                const message = messageInput.value.trim();
+                if (message) {
+                    socket.emit('chat_message', { message });
+                    messageInput.value = '';
+                }
+            }
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                if (file.size > MAX_FILE_SIZE) {
+                    showError('File size exceeds 16MB limit');
+                    fileInput.value = '';
+                    return;
+                }
+
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const arrayBuffer = e.target.result;
+                    const base64Data = btoa(
+                        new Uint8Array(arrayBuffer)
+                            .reduce((data, byte) => data + String.fromCharCode(byte), '')
+                    );
+                    
+                    socket.emit('file_upload', {
+                        filename: file.name,
+                        file_data: base64Data
+                    });
+                };
+                reader.onerror = () => {
+                    showError('Error reading file');
+                };
+                reader.readAsArrayBuffer(file);
+                fileInput.value = '';
+            }
+        });
+    </script>
+</body>
+</html> 
